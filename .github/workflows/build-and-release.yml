@@ -1,0 +1,193 @@
+name: Build, MySQL Sync Test & Release (Linux)
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to publish (e.g. v0.1.0)'
+        required: false
+        default: 'v0.1.0'
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build_and_test:
+    name: Build & Live MySQL 8.0 Compatibility Tests
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpass123
+          MYSQL_DATABASE: 1remote_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -prootpass123"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore NuGet dependencies
+        run: dotnet restore 1RemoteLinux.sln
+
+      - name: Build solution (Release)
+        run: dotnet build 1RemoteLinux.sln -c Release --no-restore
+
+      - name: Run xUnit Encryption, SQLite, FreeRDP & Live MySQL 8.0 Sync Tests
+        env:
+          TEST_MYSQL_HOST: 127.0.0.1
+          TEST_MYSQL_PORT: "3306"
+          TEST_MYSQL_DB: 1remote_test
+          TEST_MYSQL_USER: root
+          TEST_MYSQL_PASS: rootpass123
+        run: dotnet test tests/OneRemote.Linux.Tests/OneRemote.Linux.Tests.csproj -c Release --no-build --verbosity normal
+
+      - name: Package linux-x64 self-contained .tar.gz and Ubuntu .deb
+        run: |
+          RAW_TAG="${{ inputs.release_tag != '' && inputs.release_tag || github.ref_name }}"
+          VERSION="${RAW_TAG#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            VERSION="0.1.0"
+          fi
+          echo "PACK_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+          mkdir -p dist
+          dotnet publish src/OneRemote.Linux.App/OneRemote.Linux.App.csproj \
+            -c Release \
+            -r linux-x64 \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:Version="$VERSION" \
+            -o publish/linux-x64
+
+          chmod +x publish/linux-x64/1remote-linux
+          cp README.md LICENSE publish/linux-x64/ 2>/dev/null || true
+
+          # 1) Portable self-contained .tar.gz
+          tar -C publish/linux-x64 -czf "dist/1remote-linux-${VERSION}-linux-x64-self-contained.tar.gz" .
+
+          # 2) Native Ubuntu / Debian .deb installer
+          DEB_ROOT="deb_pkg/1remote-linux_${VERSION}_amd64"
+          mkdir -p "$DEB_ROOT/DEBIAN"
+          mkdir -p "$DEB_ROOT/opt/1remote-linux"
+          mkdir -p "$DEB_ROOT/usr/bin"
+          mkdir -p "$DEB_ROOT/usr/share/applications"
+
+          cp -r publish/linux-x64/* "$DEB_ROOT/opt/1remote-linux/"
+          chmod 0755 "$DEB_ROOT/opt/1remote-linux/1remote-linux"
+          ln -sf /opt/1remote-linux/1remote-linux "$DEB_ROOT/usr/bin/1remote-linux"
+
+          cat > "$DEB_ROOT/usr/share/applications/1remote-linux.desktop" <<EOF
+          [Desktop Entry]
+          Name=1Remote Linux
+          Comment=Cross-platform Remote Session Manager compatible with 1Remote MySQL sync
+          Exec=/opt/1remote-linux/1remote-linux
+          Icon=utilities-terminal
+          Terminal=false
+          Type=Application
+          Categories=Network;RemoteAccess;System;
+          StartupWMClass=1remote-linux
+          EOF
+
+          cat > "$DEB_ROOT/DEBIAN/control" <<EOF
+          Package: 1remote-linux
+          Version: ${VERSION}
+          Section: net
+          Priority: optional
+          Architecture: amd64
+          Depends: libc6, libgcc-s1, libstdc++6, libfontconfig1, libx11-6
+          Recommends: freerdp3-x11 | freerdp2-x11, fonts-noto-cjk
+          Maintainer: Shermanxwz <noreply@github.com>
+          Description: Native Linux (.NET 10 + Avalonia UI) client for 1Remote
+           Shares MySQL, PostgreSQL, and SQLite server inventories and encrypted
+           credentials with Windows 1Remote v1.3.2+, featuring built-in SSH terminal,
+           SFTP/FTP file manager, and FreeRDP (xfreerdp3/xfreerdp) desktop sessions.
+          EOF
+
+          dpkg-deb --build --root-owner-group "$DEB_ROOT" "dist/1remote-linux_${VERSION}_amd64.deb"
+
+          # Verify .deb metadata and generate SHA256SUMS.txt
+          dpkg-deb --info "dist/1remote-linux_${VERSION}_amd64.deb"
+          (cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - name: Upload Linux packages artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1remote-linux-packages
+          path: dist/*
+
+  publish_release:
+    name: Publish GitHub Release
+    needs: build_and_test
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Linux packages artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: 1remote-linux-packages
+          path: dist
+
+      - name: Create or Update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RAW_TAG: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref_name }}
+        run: |
+          TAG="$RAW_TAG"
+          if [[ "$TAG" != v* ]]; then
+            TAG="v0.1.0"
+          fi
+          cat <<'EOF' > release_notes.md
+          ## 1Remote Linux (__TAG__) — Ubuntu 原生跨端同步远控客户端
+
+          ### 核心特性
+          - **与 Windows 版 [Shermanxwz/1Remote v1.3.2](https://github.com/Shermanxwz/1Remote/releases/tag/v1.3.2) 零转换共用同一套 MySQL / PostgreSQL / SQLite 数据库**：100% 兼容 `Configs`、`Servers`、`Credentials` 表结构与 `1Remote.Security` 盐值加解密（保留 Windows 端扩展 JSON 字段无损回写，并内置连接池死连接自动 `ClearPool` 重连与后台非重入增量同步）。
+          - **支持直接导入 `AdditionalDataSource.json`**：一键读取 Windows 端 `1Remote` 导出的远程数据源配置文件。
+          - **内置原生 SSH 交互式终端与 SFTP / FTP 文件管理器**：基于 `SSH.NET` 与 `FluentFTP`，支持密码、OpenSSH 私钥（ED25519 / RSA）与 PAM 交互式认证，完整兼容跨分片多字节中文 UTF-8 输出与上下翻阅历史命令。
+          - **Ubuntu 原生桌面 FreeRDP 深度集成**：默认优先调用 `xfreerdp3` / `xfreerdp`，自动识别 Wayland 与 X11 会话，默认启用窗口动态分辨率（`/dynamic-resolution`）、双向剪贴板同步（`+clipboard`）及 `/from-stdin` 管道安全传密（不在 `ps aux` 暴露明文密码）。
+
+          ### Ubuntu 安装与使用说明
+          1. **推荐安装 `.deb` 包（自动注册桌面图标与 `1remote-linux` 命令）**：
+             ```bash
+             sudo apt update
+             sudo apt install -y ./1remote-linux_*_amd64.deb freerdp3-x11
+             1remote-linux
+             ```
+             *（若系统软件源为 Ubuntu 22.04，可将 `freerdp3-x11` 替换为 `freerdp2-x11`）*
+          2. **便携免安装版（`.tar.gz`，自带 .NET 10 运行时，解压即用）**：
+             ```bash
+             mkdir -p ~/1remote-linux && tar -xzf 1remote-linux-*-linux-x64-self-contained.tar.gz -C ~/1remote-linux
+             ~/1remote-linux/1remote-linux
+             ```
+          EOF
+          sed -i "s/__TAG__/${TAG}/g" release_notes.md
+
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.tar.gz dist/*.deb dist/SHA256SUMS.txt --clobber --repo "${{ github.repository }}"
+            gh release edit "$TAG" --title "1Remote Linux ${TAG}" --notes-file release_notes.md --repo "${{ github.repository }}"
+          else
+            gh release create "$TAG" dist/*.tar.gz dist/*.deb dist/SHA256SUMS.txt --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "1Remote Linux ${TAG}" --notes-file release_notes.md
+          fi

@@ -1,0 +1,295 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:OneRemote.Linux.App.ViewModels"
+        x:Class="OneRemote.Linux.App.Views.MainWindow"
+        Title="1Remote Linux — 跨端同步远控工作台 (MySQL / SSH / SFTP / FreeRDP)"
+        Width="1360" Height="840"
+        MinWidth="980" MinHeight="620"
+        WindowStartupLocation="CenterScreen">
+
+  <Grid RowDefinitions="Auto,*,Auto">
+    <!-- Top Header Bar -->
+    <Border Grid.Row="0" Background="#1E293B" BorderBrush="#334155" BorderThickness="0,0,0,1" Padding="14,10">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+          <Border Background="#2563EB" CornerRadius="6" Padding="8,4">
+            <TextBlock Text="1Remote Linux" FontWeight="SemiBold" Foreground="#FFFFFF" FontSize="14" />
+          </Border>
+          <TextBlock Text="{Binding EnvironmentBadge}" Foreground="#94A3B8" FontSize="12" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+          <Button Classes="subtle" Content="数据源与 MySQL 同步" Click="OnOpenDataSourcesClick" />
+          <Button Classes="subtle" Content="立即同步" Command="{Binding SyncNowCommand}" />
+          <Button Classes="accent" Content="+ 新建设备" Click="OnAddServerClick" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- Main Split Workspace -->
+    <Grid Grid.Row="1" ColumnDefinitions="340,1,*">
+      <!-- Left Server Navigator -->
+      <Border Grid.Column="0" Background="#111827" Padding="10">
+        <Grid RowDefinitions="Auto,Auto,*,Auto">
+          <TextBox Grid.Row="0"
+                   x:Name="SearchBox"
+                   Watermark="搜索名称 / IP / 用户名 / 标签 (Ctrl+K)..."
+                   Text="{Binding SearchQuery}"
+                   Margin="0,0,0,8" />
+
+          <Grid Grid.Row="1" ColumnDefinitions="*,8,*" Margin="0,0,0,8">
+            <ComboBox Grid.Column="0"
+                      ItemsSource="{Binding ProtocolFilters}"
+                      SelectedItem="{Binding SelectedProtocolFilter}"
+                      HorizontalAlignment="Stretch" />
+            <ComboBox Grid.Column="2"
+                      ItemsSource="{Binding AvailableTags}"
+                      SelectedItem="{Binding SelectedTagFilter}"
+                      HorizontalAlignment="Stretch" />
+          </Grid>
+
+          <ListBox Grid.Row="2"
+                   ItemsSource="{Binding FilteredServers}"
+                   SelectedItem="{Binding SelectedServer}"
+                   Background="Transparent"
+                   DoubleTapped="OnServerDoubleTapped">
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <Border Background="#1E293B" CornerRadius="8" Padding="10,8" Margin="0,3">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Border Grid.Column="0" Background="#334155" CornerRadius="5" Padding="7,3" VerticalAlignment="Center" Margin="0,0,10,0">
+                      <TextBlock Text="{Binding Protocol}" FontSize="11" Foreground="#93C5FD" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Spacing="2">
+                      <TextBlock Text="{Binding DisplayName}" FontSize="13.5" Foreground="#F8FAFC" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Text="{Binding SubTitle}" FontSize="11.5" Foreground="#94A3B8" TextTrimming="CharacterEllipsis" />
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="{Binding DataSourceBadge}" FontSize="10.5" Foreground="#38BDF8" />
+                        <TextBlock Text="{Binding TagsSummary}" FontSize="10.5" Foreground="#A78BFA" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                      <Button Classes="subtle" Content="连接" Padding="8,4" FontSize="11.5" Click="OnConnectRowClick" Tag="{Binding}" />
+                      <Button Classes="subtle" Content="编辑" Padding="7,4" FontSize="11.5" Click="OnEditRowClick" Tag="{Binding}" />
+                    </StackPanel>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+          <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
+            <Button Classes="subtle" Content="SFTP 文件" Click="OnOpenSftpSelectedClick" HorizontalAlignment="Stretch" />
+            <Button Classes="subtle" Content="删除选中" Click="OnDeleteSelectedClick" Foreground="#FCA5A5" HorizontalAlignment="Stretch" />
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <Border Grid.Column="1" Background="#1E293B" />
+
+      <!-- Right Multi-Tab Session Host -->
+      <Grid Grid.Column="2" RowDefinitions="Auto,*">
+        <!-- Session Tab Strip + '+' Quick-Launcher (No Deactivated Focus-Steal Crash!) -->
+        <Border Grid.Row="0" Background="#162032" BorderBrush="#334155" BorderThickness="0,0,0,1" Padding="8,6">
+          <Grid ColumnDefinitions="*,Auto">
+            <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+              <ItemsControl ItemsSource="{Binding OpenTabs}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="6" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border Background="#1E293B" BorderBrush="#475569" BorderThickness="1" CornerRadius="6" Padding="8,4">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button Background="Transparent" Padding="2,0" Click="OnSelectTabClick" Tag="{Binding}">
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding ProtocolBadge}" FontSize="11" Foreground="#60A5FA" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding Title}" FontSize="12.5" Foreground="#F1F5F9" VerticalAlignment="Center" />
+                          </StackPanel>
+                        </Button>
+                        <Button Background="Transparent" Padding="4,0" Content="×" Foreground="#94A3B8" Command="{Binding RequestCloseCommand}" />
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+
+            <Button Grid.Column="1" Classes="accent" Content="＋ 快速连新设备" Padding="10,4" Margin="8,0,0,0" Command="{Binding ToggleQuickConnectCommand}" />
+          </Grid>
+        </Border>
+
+        <!-- Active Session Viewport & Quick-Connect Overlay -->
+        <Grid Grid.Row="1">
+          <!-- Empty Welcome State -->
+          <StackPanel IsVisible="{Binding SelectedTab, Converter={x:Static ObjectConverters.IsNull}}"
+                      VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10">
+            <TextBlock Text="选择左侧设备双击连接，或点击右上角「数据源与 MySQL 同步」接入你现有的 1Remote 数据库"
+                       FontSize="15" Foreground="#94A3B8" HorizontalAlignment="Center" />
+            <TextBlock Text="支持与 Windows 1Remote v1.3.2 共用同一套 MySQL 表与盐值加密 · 内置 SSH 终端 / SFTP 文件管理 / FreeRDP 动态桌面"
+                       FontSize="12.5" Foreground="#64748B" HorizontalAlignment="Center" />
+          </StackPanel>
+
+          <!-- Selected Session Tab Content -->
+          <ContentControl Content="{Binding SelectedTab}"
+                          IsVisible="{Binding SelectedTab, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <ContentControl.DataTemplates>
+              <!-- SSH Interactive Terminal Template -->
+              <DataTemplate DataType="vm:SshSessionTabViewModel">
+                <Grid RowDefinitions="Auto,*,Auto" Margin="10">
+                  <Border Grid.Row="0" Background="#1E293B" CornerRadius="6" Padding="10,6" Margin="0,0,0,8">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock Grid.Column="0" Text="{Binding StatusText}" Foreground="#93C5FD" FontSize="12.5" VerticalAlignment="Center" />
+                      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                        <Button Classes="subtle" Content="打开 SFTP" Command="{Binding OpenCompanionSftpCommand}" />
+                        <Button Classes="subtle" Content="Ctrl+C" Command="{Binding SendCtrlCCommand}" />
+                        <Button Classes="subtle" Content="Ctrl+D" Command="{Binding SendCtrlDCommand}" />
+                        <Button Classes="subtle" Content="清屏" Command="{Binding ClearTerminalCommand}" />
+                        <Button Classes="subtle" Content="重连" Command="{Binding ReconnectCommand}" />
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+
+                  <Border Grid.Row="1" Background="#090D16" BorderBrush="#334155" BorderThickness="1" CornerRadius="6" Padding="10">
+                    <TextBox Text="{Binding TerminalOutput}"
+                             IsReadOnly="True"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Foreground="#E2E8F0"
+                             FontFamily="JetBrains Mono, Ubuntu Mono, Noto Sans Mono CJK SC, monospace"
+                             FontSize="13" />
+                  </Border>
+
+                  <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
+                    <TextBlock Grid.Column="0" Text="$" Foreground="#34D399" FontFamily="monospace" FontSize="15" VerticalAlignment="Center" Margin="4,0,8,0" />
+                    <TextBox Grid.Column="1"
+                             Text="{Binding CommandInput}"
+                             Watermark="输入 Shell 命令（支持中文 UTF-8 直输，按 Enter 发送，上下键翻阅历史）..."
+                             FontFamily="JetBrains Mono, Ubuntu Mono, Noto Sans Mono CJK SC, monospace"
+                             KeyDown="OnSshCommandKeyDown" />
+                    <Button Grid.Column="2" Classes="accent" Content="发送" Margin="8,0,0,0" Command="{Binding SendCommandCommand}" />
+                  </Grid>
+                </Grid>
+              </DataTemplate>
+
+              <!-- SFTP / FTP File Manager Template -->
+              <DataTemplate DataType="vm:FileBrowserTabViewModel">
+                <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="10">
+                  <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,*,Auto" Margin="0,0,0,8">
+                    <Button Grid.Column="0" Classes="subtle" Content="↑ 上级目录" Command="{Binding NavigateUpCommand}" Margin="0,0,6,0" />
+                    <Button Grid.Column="1" Classes="subtle" Content="刷新" Command="{Binding RefreshCommand}" Margin="0,0,8,0" />
+                    <TextBox Grid.Column="2" Text="{Binding CurrentPath}" KeyDown="OnSftpPathKeyDown" />
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" Margin="8,0,0,0">
+                      <Button Classes="accent" Content="上传文件" Click="OnUploadFileClick" Tag="{Binding}" />
+                      <Button Classes="subtle" Content="下载选中" Click="OnDownloadFileClick" Tag="{Binding}" />
+                      <Button Classes="subtle" Content="删除选中" Command="{Binding DeleteSelectedCommand}" Foreground="#FCA5A5" />
+                    </StackPanel>
+                  </Grid>
+
+                  <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                    <TextBox Grid.Column="0" Text="{Binding NewFolderName}" Watermark="输入新目录名称..." />
+                    <Button Grid.Column="1" Classes="subtle" Content="+ 新建远程文件夹" Command="{Binding CreateFolderCommand}" Margin="8,0,0,0" />
+                  </Grid>
+
+                  <ListBox Grid.Row="2"
+                           ItemsSource="{Binding Entries}"
+                           SelectedItem="{Binding SelectedEntry}"
+                           Background="#0B1120"
+                           DoubleTapped="OnRemoteFileDoubleTapped">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate>
+                        <Grid ColumnDefinitions="32,*,110,150" Margin="4,2">
+                          <TextBlock Grid.Column="0" Text="{Binding Icon}" />
+                          <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="#F1F5F9" />
+                          <TextBlock Grid.Column="2" Text="{Binding FormattedSize}" Foreground="#94A3B8" HorizontalAlignment="Right" Margin="0,0,16,0" />
+                          <TextBlock Grid.Column="3" Text="{Binding FormattedTime}" Foreground="#64748B" />
+                        </Grid>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+
+                  <TextBlock Grid.Row="3" Text="{Binding StatusText}" Foreground="#93C5FD" FontSize="12" Margin="0,8,0,0" />
+                </Grid>
+              </DataTemplate>
+
+              <!-- FreeRDP Session Host Template -->
+              <DataTemplate DataType="vm:RdpSessionTabViewModel">
+                <Grid RowDefinitions="Auto,Auto,*" Margin="12">
+                  <Border Grid.Row="0" Background="#1E293B" CornerRadius="8" Padding="12,10" Margin="0,0,0,8">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <StackPanel Grid.Column="0" Spacing="4">
+                        <TextBlock Text="{Binding StatusText}" FontSize="14" Foreground="#F8FAFC" />
+                        <TextBlock Text="{Binding SessionSummary}" FontSize="11.5" Foreground="#94A3B8" TextWrapping="Wrap" />
+                      </StackPanel>
+                      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button Classes="accent" Content="重新启动 RDP 窗口" Command="{Binding LaunchRdpCommand}" />
+                        <Button Classes="subtle" Content="结束会话" Command="{Binding StopRdpCommand}" Foreground="#FCA5A5" />
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+
+                  <TextBlock Grid.Row="1" Text="FreeRDP 实时会话日志：" FontSize="12" Foreground="#94A3B8" Margin="0,4,0,6" />
+
+                  <Border Grid.Row="2" Background="#090D16" BorderBrush="#334155" BorderThickness="1" CornerRadius="6" Padding="10">
+                    <TextBox Text="{Binding DiagnosticLog}"
+                             IsReadOnly="True"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             FontFamily="JetBrains Mono, Ubuntu Mono, monospace"
+                             FontSize="12"
+                             Foreground="#CBD5E1" />
+                  </Border>
+                </Grid>
+              </DataTemplate>
+            </ContentControl.DataTemplates>
+          </ContentControl>
+
+          <!-- In-Session '+' Quick Connect Overlay Drawer -->
+          <Border IsVisible="{Binding IsQuickConnectOpen}"
+                  Width="360"
+                  HorizontalAlignment="Right"
+                  VerticalAlignment="Top"
+                  Margin="12"
+                  Background="#1E293B"
+                  BorderBrush="#3B82F6"
+                  BorderThickness="1.5"
+                  CornerRadius="10"
+                  Padding="12">
+            <StackPanel Spacing="8">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Text="快速打开另一台设备" FontSize="14" Foreground="#F8FAFC" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Classes="subtle" Content="关闭" Padding="8,2" Command="{Binding ToggleQuickConnectCommand}" />
+              </Grid>
+              <TextBox Text="{Binding SearchQuery}" Watermark="筛选设备..." />
+              <ListBox ItemsSource="{Binding FilteredServers}" MaxHeight="340" Background="#0F172A" DoubleTapped="OnQuickConnectItemDoubleTapped">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="2">
+                      <TextBlock Grid.Column="0" Text="{Binding Protocol}" Foreground="#60A5FA" Width="46" VerticalAlignment="Center" />
+                      <StackPanel Grid.Column="1">
+                        <TextBlock Text="{Binding DisplayName}" FontSize="12.5" Foreground="#F8FAFC" />
+                        <TextBlock Text="{Binding SubTitle}" FontSize="11" Foreground="#94A3B8" />
+                      </StackPanel>
+                      <Button Grid.Column="2" Classes="accent" Content="进入" Padding="8,3" FontSize="11" Click="OnConnectRowClick" Tag="{Binding}" />
+                    </Grid>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </StackPanel>
+          </Border>
+        </Grid>
+      </Grid>
+    </Grid>
+
+    <!-- Bottom Status Bar -->
+    <Border Grid.Row="2" Background="#0B1120" BorderBrush="#1E293B" BorderThickness="0,1,0,0" Padding="14,6">
+      <TextBlock Text="{Binding SyncBannerText}" FontSize="12" Foreground="#94A3B8" />
+    </Border>
+  </Grid>
+</Window>
