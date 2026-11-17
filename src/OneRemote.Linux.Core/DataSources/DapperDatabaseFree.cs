@@ -2,7 +2,7 @@ using System.Data;
 using System.Data.Common;
 using Dapper;
 using Microsoft.Data.Sqlite;
-using MySql.Data.MySqlClient;
+using MySqlConnector;
 using Npgsql;
 using NUlid;
 using OneRemote.Linux.Core.Models;

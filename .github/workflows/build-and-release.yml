@@ -33,12 +33,12 @@ jobs:
           MYSQL_ROOT_PASSWORD: rootpass123
           MYSQL_DATABASE: 1remote_test
         ports:
-          - 3306:3306
+          - 13306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -prootpass123"
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -P 3306 --protocol=tcp -uroot -prootpass123"
           --health-interval=5s
           --health-timeout=5s
-          --health-retries=15
+          --health-retries=20
 
     steps:
       - name: Checkout repository
@@ -49,6 +49,18 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Verify MySQL 8.0 service TCP readiness
+        run: |
+          for i in {1..30}; do
+            if mysql --protocol=tcp -h 127.0.0.1 -P 13306 -uroot -prootpass123 -e "SELECT VERSION();" >/dev/null 2>&1; then
+              echo "MySQL 8.0 TCP 13306 is ready!"
+              break
+            fi
+            echo "Waiting for MySQL 8.0 TCP 13306 ($i/30)..."
+            sleep 2
+          done
+          mysql --protocol=tcp -h 127.0.0.1 -P 13306 -uroot -prootpass123 -e "CREATE DATABASE IF NOT EXISTS 1remote_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
       - name: Restore NuGet dependencies
         run: dotnet restore 1RemoteLinux.sln
 
@@ -58,7 +70,7 @@ jobs:
       - name: Run xUnit Encryption, SQLite, FreeRDP & Live MySQL 8.0 Sync Tests
         env:
           TEST_MYSQL_HOST: 127.0.0.1
-          TEST_MYSQL_PORT: "3306"
+          TEST_MYSQL_PORT: "13306"
           TEST_MYSQL_DB: 1remote_test
           TEST_MYSQL_USER: root
           TEST_MYSQL_PASS: rootpass123

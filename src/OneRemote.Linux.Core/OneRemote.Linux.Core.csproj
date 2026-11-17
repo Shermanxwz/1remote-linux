@@ -13,7 +13,7 @@
     <PackageReference Include="FluentFTP" Version="51.0.0" />
     <PackageReference Include="JsonKnownTypes" Version="0.5.4" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.2" />
-    <PackageReference Include="MySql.Data" Version="8.0.30" />
+    <PackageReference Include="MySqlConnector" Version="2.6.2" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="Npgsql" Version="9.0.2" />
     <PackageReference Include="NUlid" Version="1.7.1" />

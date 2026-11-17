@@ -1,5 +1,5 @@
 using Microsoft.Data.Sqlite;
-using MySql.Data.MySqlClient;
+using MySqlConnector;
 using Newtonsoft.Json;
 using Npgsql;
 using NUlid;
@@ -148,6 +148,8 @@ public static class DbConnectionStrings
             ConnectionReset = true,
             ConnectionLifeTime = 180,
             Keepalive = 30,
+            AllowPublicKeyRetrieval = true,
+            SslMode = MySqlSslMode.Preferred,
         };
         return csb.ConnectionString;
     }
